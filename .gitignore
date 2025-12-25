@@ -1,0 +1,38 @@
+# Cargo build output
+/target/
+
+# Rustfmt backup files
+**/*.rs.bk
+
+# Cargo.lock (ignore for libraries, keep for binaries)
+# Uncomment the next line if this is a library crate
+# Cargo.lock
+
+# IDEs and editors
+..idea/
+*.swp
+*.swo
+*.swn
+*.bak
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# Coverage / profiling
+coverage/
+*.profraw
+*.profdata
+
+# Benchmarks output
+criterion/
+
+# Optional: local config files
+config/local.toml
+
