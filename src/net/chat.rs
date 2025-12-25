@@ -1,6 +1,9 @@
-use crate::types::{
-    blockchain::PeerAddr,
-    chat::{ChatError, ChatResponse},
+use crate::{
+    server::handler::Server,
+    types::{
+        blockchain::{PeerAddr, TransactionMessage},
+        chat::{ChatError, ChatResponse},
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,8 +19,8 @@ use tokio::{
 
 #[derive(Clone, Debug)]
 pub struct Client {
-    nickname: String,
-    writer: Arc<Mutex<OwnedWriteHalf>>,
+    pub nickname: String,
+    pub writer: Arc<Mutex<OwnedWriteHalf>>,
 }
 
 impl Client {
@@ -178,8 +181,9 @@ impl ConnectionPool {
 // }
 
 pub async fn handle_connection(
-    pool: Arc<ConnectionPool>,
+    pool: Arc<Mutex<ConnectionPool>>,
     stream: TcpStream,
+    server: Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error>> {
     let (mut reader, mut writer) = stream.into_split();
 
@@ -202,7 +206,11 @@ pub async fn handle_connection(
     let nickname = String::from_utf8_lossy(&buf[..n]).trim().to_string();
 
     let writer = Arc::new(Mutex::new(writer));
-    let client = pool.add_peer(nickname.clone(), writer.clone()).await;
+    let client = pool
+        .lock()
+        .await
+        .add_peer(nickname.clone(), writer.clone())
+        .await;
 
     log::info!("Your nickname is: {:?}", nickname);
 
@@ -212,7 +220,7 @@ pub async fn handle_connection(
 
         match bytes_read {
             Ok(0) => {
-                pool.broadcast_quit(&client).await;
+                pool.lock().await.broadcast_quit(&client).await;
                 log::error!("EOF: Client is disconnected!");
                 break;
             }
@@ -223,13 +231,25 @@ pub async fn handle_connection(
                 println!("Message: {:?}", msg);
 
                 if msg == "/quit" {
-                    pool.broadcast_quit(&client).await;
+                    pool.lock().await.broadcast_quit(&client).await;
                     log::error!("Client is disconnected!");
                     break;
                 } else if msg == "/list" {
-                    pool.list_clients(writer.clone()).await;
+                    pool.lock().await.list_clients(writer.clone()).await;
                 } else {
-                    pool.broadcast_new_message(&client, msg.to_string()).await;
+                    let p2p_arc = {
+                        let server_guard = server.lock().await;
+                        server_guard.p2p_protocol.as_ref().unwrap().clone()
+                    };
+
+                    let p2p = p2p_arc.lock().await;
+
+                    p2p.handle_transaction(msg, writer.clone()).await;
+
+                    pool.lock()
+                        .await
+                        .broadcast_new_message(&client, msg.to_string())
+                        .await;
                 }
             }
             Err(e) => {

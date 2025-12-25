@@ -1,14 +1,15 @@
-use std::sync::Arc;
-
 use clap::Parser;
 use log4rs::config::Deserializers;
 use no_cap::{
     blockchain::init::Blockchain,
     net::chat::{handle_connection, ConnectionPool},
-    types::args::Args,
+    p2p::P2PProtocol,
+    server::handler::Server,
+    types::{args::Args, blockchain::Transaction},
     utils::reqwest::get_external_ip,
 };
-use tokio::net::TcpListener;
+use std::sync::Arc;
+use tokio::{net::TcpListener, sync::Mutex};
 
 #[tokio::main]
 async fn main() {
@@ -26,9 +27,18 @@ async fn main() {
 
     get_external_ip().await.unwrap();
 
-    let mut blockchain = Blockchain::init();
-    log::info!("Blockchain initializated: {:?}", blockchain);
-    let mut pool = Arc::new(ConnectionPool::init());
+    let blockchain = Arc::new(Mutex::new(Blockchain::init()));
+    let pool = Arc::new(Mutex::new(ConnectionPool::init()));
+
+    let server = Arc::new(Mutex::new(Server {
+        blockchain: blockchain.clone(),
+        connection_pool: pool.clone(),
+        p2p_protocol: None, // temporarily None
+    }));
+
+    let p2p = Arc::new(Mutex::new(P2PProtocol::new(server.clone()).await));
+
+    server.lock().await.p2p_protocol = Some(p2p.clone());
 
     let listener = TcpListener::bind("0.0.0.0:2373").await.unwrap();
     log::info!("Listening on 127.0.0.0:2373");
@@ -47,8 +57,9 @@ async fn main() {
         log::info!("Connection from {}", addr);
         let pool_clone = pool.clone();
 
+        let value = server.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(pool_clone, stream).await {
+            if let Err(e) = handle_connection(pool_clone, stream, value).await {
                 log::error!("Error handling connection: {}", e);
             }
         });

@@ -1,11 +1,16 @@
 use super::block::Block;
 use crate::{
-    types::blockchain::Transaction,
+    p2p::CURRENT_TRANSACTIONS,
+    types::blockchain::{ActionType, Transaction},
     utils::hasher::{block_hasher, transactions_hasher},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::LinkedList;
+use std::{
+    collections::LinkedList,
+    sync::{Arc, Mutex},
+    thread::AccessError,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Blockchain {
@@ -30,8 +35,10 @@ impl Blockchain {
         }
     }
 
-    pub fn add_new_block(&mut self) -> Blockchain {
+    pub fn add_new_block(&mut self) -> (Block, Blockchain) {
+        println!("\nBlockchain: {:?}\n", self);
         let index = self.get_last_block().map(|block| block.index).unwrap_or(1) + 1;
+        println!("Last Block: {:?}", self.get_last_block());
         let prev_hash = self
             .get_last_block()
             .map(|block| block.hash)
@@ -42,11 +49,11 @@ impl Blockchain {
         block.hash = Some(block_hasher(&block));
         block.merkle_root = Some(transactions_hasher(&block.transactions));
 
-        self.blocks.push_back(block);
+        self.blocks.push_back(block.clone());
         self.current_transactions = Vec::new();
         self.archieved_transactions
             .append(&mut self.current_transactions);
-        self.clone()
+        (block, self.clone())
     }
 
     pub fn get_last_block(&self) -> Option<Block> {
@@ -65,7 +72,36 @@ impl Blockchain {
             .collect()
     }
 
-    pub fn proof_of_work(&self) -> Block {
-        todo!()
+    pub async fn proof_of_work(&self, connection_len: u32) -> Option<ActionType> {
+        let transactions = CURRENT_TRANSACTIONS.lock().await;
+
+        let accept_votes = transactions
+            .iter()
+            .filter(|tx| tx.action_type == ActionType::VoteAccept)
+            .count();
+        println!("Accept: {:?}", accept_votes);
+        let reject_votes = transactions
+            .iter()
+            .filter(|tx| tx.action_type == ActionType::VoteReject)
+            .count();
+        println!("Reject: {:?}", reject_votes);
+
+        let accept_ratio = accept_votes as f32 / connection_len as f32;
+        let reject_ratio = reject_votes as f32 / connection_len as f32;
+
+        log::info!("Votes: Accept={} Reject={}", accept_votes, reject_votes);
+        log::info!(
+            "Consensus ratio: Accept={:.2} Reject={:.2}",
+            accept_ratio,
+            reject_ratio
+        );
+
+        if accept_ratio >= 2.0 / 3.0 {
+            Some(ActionType::VoteAccept)
+        } else if reject_ratio >= 2.0 / 3.0 {
+            Some(ActionType::VoteReject)
+        } else {
+            None
+        }
     }
 }

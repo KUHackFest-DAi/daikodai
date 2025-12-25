@@ -56,7 +56,8 @@ pub struct PayloadData {
     pub description: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
 pub enum ActionType {
     ProposeUpdate,
 
@@ -93,6 +94,13 @@ pub struct Ping {
     pub peer_count: usize,
 
     pub is_miner: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TransactionMessage {
+    pub name: String,
+
+    pub payload: Transaction,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
