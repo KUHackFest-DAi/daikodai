@@ -11,8 +11,6 @@ use no_cap::{
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::Mutex};
 
-use lazy_static::lazy_static;
-
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
