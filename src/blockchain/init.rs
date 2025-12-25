@@ -83,6 +83,7 @@ impl Blockchain {
             .filter(|tx| tx.action_type == ActionType::VoteReject)
             .count();
         println!("Reject: {:?}", reject_votes);
+        let connection_len = connection_len - 1;
 
         let accept_ratio = accept_votes as f32 / connection_len as f32;
         let reject_ratio = reject_votes as f32 / connection_len as f32;

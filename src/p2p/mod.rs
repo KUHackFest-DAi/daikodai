@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     blockchain::init::Blockchain,
@@ -7,7 +7,11 @@ use crate::{
     types::blockchain::{ActionType, Ping, Transaction, TransactionMessage},
     utils::message::create_block_message,
 };
+use once_cell::sync::Lazy;
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf, sync::Mutex};
+
+static PROPOSAL_OWNERS: Lazy<Arc<Mutex<HashMap<String, String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub static CURRENT_TRANSACTIONS: once_cell::sync::Lazy<Arc<tokio::sync::Mutex<Vec<Transaction>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(tokio::sync::Mutex::new(Vec::new())));
@@ -30,6 +34,26 @@ impl P2PProtocol {
         }
     }
 
+    fn validate_proposal(tx: &Transaction) -> Result<(), String> {
+        if tx.agent_id.trim().is_empty() {
+            return Err("Agent ID is empty".to_string());
+        }
+
+        if tx.reasoning_hash.trim().is_empty() {
+            return Err("Reasoning hash is empty".to_string());
+        }
+
+        if tx.action_type != crate::types::blockchain::ActionType::ProposeUpdate {
+            return Err("Transaction is not a ProposeUpdate".to_string());
+        }
+
+        if tx.payload.description.trim().is_empty() {
+            return Err("Proposal description is empty".to_string());
+        } else {
+            Ok(())
+        }
+    }
+
     pub async fn handle_transaction(&self, msg: &str, writer: Arc<Mutex<OwnedWriteHalf>>) {
         match serde_json::from_str::<TransactionMessage>(msg) {
             Ok(tx_msg) => {
@@ -44,9 +68,44 @@ impl P2PProtocol {
                 match tx_msg.payload.action_type {
                     crate::types::blockchain::ActionType::ProposeUpdate => {
                         log::info!("ProposeUpdate: {:?}", tx_msg);
+
+                        if let Err(err) = Self::validate_proposal(&tx_msg.payload) {
+                            log::warn!("Invalid proposal: {:?}", err);
+                            return;
+                        }
+
+                        PROPOSAL_OWNERS.lock().await.insert(
+                            tx_msg.payload.reasoning_hash.clone(),
+                            tx_msg.payload.agent_id.clone(),
+                        );
+
+                        CURRENT_TRANSACTIONS
+                            .lock()
+                            .await
+                            .push(tx_msg.payload.clone());
+                        let pool = self.connection_pool.lock().await;
+                        for client in pool.clients.lock().await.iter() {
+                            let mut writer = client.writer.lock().await;
+                            let message = serde_json::to_string(&tx_msg).unwrap();
+                            let _ = writer.write_all(message.as_bytes()).await;
+                        }
+
+                        log::info!("Proposal broadcasted to peers.");
                     }
+
                     crate::types::blockchain::ActionType::VoteAccept
                     | crate::types::blockchain::ActionType::VoteReject => {
+                        let owners = PROPOSAL_OWNERS.lock().await;
+                        if let Some(owner) = owners.get(&tx_msg.payload.reasoning_hash) {
+                            if owner == &tx_msg.payload.agent_id {
+                                log::warn!(
+                                    "Agent {} attempted to vote on its own proposal {}. Ignoring.",
+                                    tx_msg.payload.agent_id,
+                                    tx_msg.payload.reasoning_hash
+                                );
+                                return;
+                            }
+                        }
                         log::info!("VoteAccept: {:?}", tx_msg);
 
                         CURRENT_TRANSACTIONS.lock().await.push(tx_msg.payload);
