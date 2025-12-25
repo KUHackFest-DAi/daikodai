@@ -35,16 +35,18 @@ impl Blockchain {
         }
     }
 
-    pub fn add_new_block(&mut self) -> (Block, Blockchain) {
+    pub async fn add_new_block(&mut self) -> (Block, Blockchain) {
         println!("\nBlockchain: {:?}\n", self);
         let index = self.get_last_block().map(|block| block.index).unwrap_or(1) + 1;
         println!("Last Block: {:?}", self.get_last_block());
+
         let prev_hash = self
             .get_last_block()
-            .map(|block| block.hash)
-            .unwrap()
-            .unwrap();
-        let mut block = Block::new(index, prev_hash, self.current_transactions.clone());
+            .and_then(|block| block.hash.clone())
+            .unwrap_or_else(|| "0".to_string());
+        let mut global_tx = CURRENT_TRANSACTIONS.lock().await;
+        let mut block = Block::new(index, prev_hash, global_tx.to_vec());
+        global_tx.clear();
 
         block.hash = Some(block_hasher(&block));
         block.merkle_root = Some(transactions_hasher(&block.transactions));
@@ -57,11 +59,7 @@ impl Blockchain {
     }
 
     pub fn get_last_block(&self) -> Option<Block> {
-        if self.blocks.is_empty() {
-            self.blocks.back().cloned()
-        } else {
-            None
-        }
+        self.blocks.back().cloned()
     }
 
     pub fn get_blockchain_after_timestamp(&self, timestamp: DateTime<Utc>) -> Vec<Block> {

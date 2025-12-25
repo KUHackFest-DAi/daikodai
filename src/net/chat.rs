@@ -106,10 +106,10 @@ impl ConnectionPool {
             let mut writer = client.writer.lock().await;
             match writer.write_all(message.as_bytes()).await {
                 Ok(_) => {
-                    log::info!("Broadcast successfully done!");
+                    log::info!("Broadcast successfully done!\n");
                 }
                 Err(e) => {
-                    log::error!("Broadcast error: {:?}", e);
+                    log::error!("Broadcast error: {:?}\n", e);
                 }
             }
         }
@@ -118,7 +118,7 @@ impl ConnectionPool {
     pub async fn broadcast_join(&self, client: &Client) {
         self.broadcast(
             client.clone().writer,
-            format!("{} has just joined!", client.nickname),
+            format!("{} has just joined!\n", client.nickname),
         )
         .await;
     }
@@ -126,7 +126,7 @@ impl ConnectionPool {
     pub async fn broadcast_quit(&self, client: &Client) {
         self.broadcast(
             client.clone().writer,
-            format!("{} has just quit!", client.nickname),
+            format!("{} has just quit!\n", client.nickname),
         )
         .await;
     }
@@ -134,7 +134,7 @@ impl ConnectionPool {
     pub async fn broadcast_new_message(&self, client: &Client, message: String) {
         self.broadcast(
             client.clone().writer,
-            format!("[{}]: {}\n", client.nickname, message),
+            format!("\n[{}]: {}\n", client.nickname, message),
         )
         .await;
     }
@@ -234,13 +234,14 @@ pub async fn handle_connection(
                     server_guard.p2p_protocol.as_ref().unwrap().clone()
                 };
                 let p2p = p2p_arc.lock().await;
-                p2p.handle_transaction(msg, writer.clone()).await;
-
-                // Broadcast to all clients
                 pool.lock()
                     .await
                     .broadcast_new_message(&client, msg.to_string())
                     .await;
+
+                p2p.handle_transaction(msg, writer.clone()).await;
+
+                // Broadcast to all clients
             }
         }
     }

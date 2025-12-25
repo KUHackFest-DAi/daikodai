@@ -64,8 +64,9 @@ impl P2PProtocol {
 
                         if verdict == Some(ActionType::VoteAccept) {
                             log::info!("Adding new block!\n");
-                            let (block, _blockchain) = self.blockchain.lock().await.add_new_block();
-                            let message = serde_json::to_string(&block).unwrap();
+                            let (block, _blockchain) =
+                                self.blockchain.lock().await.add_new_block().await;
+                            let message = serde_json::to_string_pretty(&block).unwrap();
                             let pool = self.connection_pool.lock().await;
                             for client in pool.clients.lock().await.iter() {
                                 let mut writer = client.writer.lock().await;

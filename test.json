@@ -1,0 +1,4 @@
+
+{"name":"transaction","payload":{"agent_id":"agent_001","signature":"sig_001","reasoning_hash":"proposal_001","action_type":"VoteAccept","payload":{"model_modification":null,"model_parameters":null,"evaluation_result":null,"description":"Vote to approve proposal_001"}}}
+{"name":"transaction","payload":{"agent_id":"agent_002","signature":"sig_002","reasoning_hash":"proposal_002","action_type":"VoteAccept","payload":{"model_modification":null,"model_parameters":null,"evaluation_result":null,"description":"Vote to approve proposal_002"}}}
+{"name":"transaction","payload":{"agent_id":"agent_003","signature":"sig_003","reasoning_hash":"proposal_003","action_type":"VoteReject","payload":{"model_modification":null,"model_parameters":null,"evaluation_result":null,"description":"Vote to reject proposal_003"}}}
