@@ -12,7 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
     sync::{broadcast, Mutex},
 };
@@ -134,7 +134,7 @@ impl ConnectionPool {
     pub async fn broadcast_new_message(&self, client: &Client, message: String) {
         self.broadcast(
             client.clone().writer,
-            format!("[{}]: {}", client.nickname, message),
+            format!("[{}]: {}\n", client.nickname, message),
         )
         .await;
     }
@@ -185,27 +185,21 @@ pub async fn handle_connection(
     stream: TcpStream,
     server: Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error>> {
-    let (mut reader, mut writer) = stream.into_split();
-
-    match writer.write_all(b"Choose your nickname: ").await {
-        Ok(()) => log::info!("Nickname write successful: "),
-        Err(e) => log::error!("Nickname write error: {:?}", e),
-    }
-
-    let mut buf = [0u8; 1024];
-    let n = match reader.read(&mut buf).await {
-        Ok(n) => {
-            log::info!("Nickname successfully read!");
-            n
-        }
-        Err(e) => {
-            log::error!("Error while reading nickname: {:?}", e);
-            return Err(Box::new(e));
-        }
-    };
-    let nickname = String::from_utf8_lossy(&buf[..n]).trim().to_string();
-
+    let (reader, writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
+
+    // Ask for nickname
+    writer
+        .lock()
+        .await
+        .write_all(b"Choose your nickname: ")
+        .await?;
+
+    let mut nickname_line = String::new();
+    reader.read_line(&mut nickname_line).await?;
+    let nickname = nickname_line.trim().to_string();
+
     let client = pool
         .lock()
         .await
@@ -214,46 +208,39 @@ pub async fn handle_connection(
 
     log::info!("Your nickname is: {:?}", nickname);
 
-    loop {
-        buf.fill(0);
-        let bytes_read = reader.read(&mut buf).await;
+    let mut lines = reader.lines();
 
-        match bytes_read {
-            Ok(0) => {
+    while let Some(line) = lines.next_line().await? {
+        let msg = line.trim();
+        if msg.is_empty() {
+            continue;
+        }
+
+        println!("Message: {:?}", msg);
+
+        match msg {
+            "/quit" => {
                 pool.lock().await.broadcast_quit(&client).await;
-                log::error!("EOF: Client is disconnected!");
+                log::error!("Client is disconnected!");
                 break;
             }
-
-            Ok(_) => {
-                let message = String::from_utf8_lossy(&buf[..]);
-                let msg = message.trim_end_matches('\0').trim();
-                println!("Message: {:?}", msg);
-
-                if msg == "/quit" {
-                    pool.lock().await.broadcast_quit(&client).await;
-                    log::error!("Client is disconnected!");
-                    break;
-                } else if msg == "/list" {
-                    pool.lock().await.list_clients(writer.clone()).await;
-                } else {
-                    let p2p_arc = {
-                        let server_guard = server.lock().await;
-                        server_guard.p2p_protocol.as_ref().unwrap().clone()
-                    };
-
-                    let p2p = p2p_arc.lock().await;
-
-                    p2p.handle_transaction(msg, writer.clone()).await;
-
-                    pool.lock()
-                        .await
-                        .broadcast_new_message(&client, msg.to_string())
-                        .await;
-                }
+            "/list" => {
+                pool.lock().await.list_clients(writer.clone()).await;
             }
-            Err(e) => {
-                log::error!("Error occured while reading the message: {:?}", e);
+            _ => {
+                // P2P handling
+                let p2p_arc = {
+                    let server_guard = server.lock().await;
+                    server_guard.p2p_protocol.as_ref().unwrap().clone()
+                };
+                let p2p = p2p_arc.lock().await;
+                p2p.handle_transaction(msg, writer.clone()).await;
+
+                // Broadcast to all clients
+                pool.lock()
+                    .await
+                    .broadcast_new_message(&client, msg.to_string())
+                    .await;
             }
         }
     }
