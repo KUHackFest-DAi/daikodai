@@ -1050,6 +1050,7 @@ dependencies = [
  "sha2",
  "sodiumoxide",
  "tokio",
+ "tower-http",
 ]
 
 [[package]]
