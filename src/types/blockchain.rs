@@ -109,14 +109,3 @@ pub struct PeerAddr {
 
     port: u32,
 }
-//
-// #[derive(Clone, Debug, Deserialize, Serialize)]
-// pub enum MessageType {
-//     BlockMessage(Block),
-//
-//     PeersMessage(Peer),
-//
-//     PingMessage(Ping),
-//
-//     TransactionMessage(Transaction),
-// }

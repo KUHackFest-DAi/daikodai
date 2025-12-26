@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
-
 use crate::{
     blockchain::init::Blockchain,
     net::chat::{Client, ConnectionPool},
@@ -7,8 +5,14 @@ use crate::{
     types::blockchain::{ActionType, Ping, Transaction, TransactionMessage},
     utils::message::create_block_message,
 };
+use axum::extract::ws::Message;
 use once_cell::sync::Lazy;
-use tokio::{io::AsyncWriteExt, net::tcp::OwnedWriteHalf, sync::Mutex};
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
+    io::AsyncWriteExt,
+    net::tcp::OwnedWriteHalf,
+    sync::{mpsc, Mutex},
+};
 
 static PROPOSAL_OWNERS: Lazy<Arc<Mutex<HashMap<String, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -54,7 +58,12 @@ impl P2PProtocol {
         }
     }
 
-    pub async fn handle_transaction(&self, msg: &str, writer: Arc<Mutex<OwnedWriteHalf>>) {
+    pub async fn handle_transaction(
+        &self,
+        msg: &str,
+        writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
+        ws_peers: Option<Arc<Mutex<Vec<mpsc::UnboundedSender<Message>>>>>,
+    ) {
         match serde_json::from_str::<TransactionMessage>(msg) {
             Ok(tx_msg) => {
                 log::info!(
@@ -130,6 +139,14 @@ impl P2PProtocol {
                             for client in pool.clients.lock().await.iter() {
                                 let mut writer = client.writer.lock().await;
                                 let _ = writer.write_all(message.as_bytes()).await;
+                            }
+
+                            if let Some(ws) = ws_peers {
+                                let msg = serde_json::to_string_pretty(&block).unwrap();
+                                let peers = ws.lock().await;
+                                for peer in peers.iter() {
+                                    let _ = peer.send(Message::Text(msg.clone().into()));
+                                }
                             }
                         } else if verdict == Some(ActionType::VoteReject) {
                             log::info!("Block has been rejected!\n");

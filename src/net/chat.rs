@@ -239,7 +239,8 @@ pub async fn handle_connection(
                     .broadcast_new_message(&client, msg.to_string())
                     .await;
 
-                p2p.handle_transaction(msg, writer.clone()).await;
+                p2p.handle_transaction(msg, Some(writer.clone()), None)
+                    .await;
 
                 // Broadcast to all clients
             }
